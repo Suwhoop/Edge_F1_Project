@@ -1,0 +1,93 @@
+---
+title: "Formula 1 Working Notebook"
+output: html_notebook
+---
+#INSTALLING XGBOOST
+```{r}
+install.packages("ggcorrplot")
+install.packages("xgboost")
+```
+
+# BRINGING IN THE LIBS
+```{r}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(leaps)
+library(ggcorrplot)
+library(gridExtra)
+library(xgboost)
+```
+
+#BRINGING IN THE DATA
+```{r}
+results <- read_csv("F1_Kaggle/results.csv")
+status <- read_csv("F1_Kaggle/status.csv")
+constructors <- read_csv("F1_Kaggle/constructors.csv")
+races <- read_csv("F1_Kaggle/races.csv")
+circuits <- read_csv("F1_Kaggle/circuits.csv")
+```
+
+```{r}
+head(results)
+head(status)
+head(constructors)
+head(races)
+head(circuits)
+```
+
+# JANKY WAY OF GETTING ALL THE DATA IN ONE DF
+```{r}
+bigassdf1 <- merge(results, status, by='statusId', all.x = TRUE)
+bigassdf2 <- merge(bigassdf1, constructors, by='constructorId', all.x = TRUE)
+bigassdf3 <- merge(bigassdf2, races, by='raceId', all.x = TRUE)
+master_df <- merge(bigassdf3, races, by='raceId', all.x = TRUE)
+trimmed_df = subset(master_df, select=-c(url, url.x, name.y, name.x, circuitId.x, date.x, date.y, time.y, url.y, year.y, round.y, circuitId.y))
+trimmed_df
+                    
+```
+### JANKY WAY OF CREATING TEST AND TRAIN SET
+```{r}
+trainseq = seq(1950, 2015, by=1)
+presplitset = subset(trimmed_df, select=c("position","grid", "constructorRef", "year.x", "name", "time"))
+train = subset(presplitset, (presplitset$year.x %in% trainseq))
+test = subset(presplitset, !(presplitset$year.x %in% trainseq))
+x.train=model.matrix(position~.,data=train)
+y.train=train$position
+x.test=model.matrix(position~.,data=test) 
+y.test=test$position
+```
+
+
+### NOT WORKING PAST HERE
+```{r}
+set.seed(304)
+xgb.cv <-  train(position~.,train,
+                 method = "xgbTree", objective = "reg:squarederror",
+                 trControl = trainControl(method="cv", number=10))
+```
+
+```{r}
+best.xgb.params=xgb.cv$bestTune
+best.xgb.params
+```
+
+```{r}
+final.model.xgb <- xgb.cv$finalModel 
+final.model.xgb
+```
+
+
+# SAMPLE CODE FOR GETTING R2 and OOSR2
+```{r}
+final.preds.xgb <- predict(final.model.xgb, newdata = data.matrix(subset(x.test, select= c(AtBat, Hits, HmRun, Runs, RBI, Walks, Years, CAtBat, CHits, CHmRun, CRuns, CRBI, CWalks, PutOuts, Assists, Errors, LeagueN, DivisionW, NewLeagueN))))
+final.preds.xgb.train <- predict(final.model.xgb, newdata = data.matrix(subset(x.train, select= c(AtBat, Hits, HmRun, Runs, RBI, Walks, Years, CAtBat, CHits, CHmRun, CRuns, CRBI, CWalks, PutOuts, Assists, Errors, LeagueN, DivisionW, NewLeagueN))))
+
+
+final.insr.xgb <- 1 - sum((final.preds.xgb.train - y.train)^2)/sum((mean(y.train) - y.train)^2)
+final.insr.xgb
+
+final.osr.xgb <- 1 - sum((final.preds.xgb - y.test)^2)/sum((mean(y.train) - y.test)^2)
+final.osr.xgb
+```
+
